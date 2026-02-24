@@ -15,6 +15,8 @@ ENV MAXIMUM_MEMORY=512M
 # Railway exposes apps via HTTPS on port 443
 ENV HTTP_PROXY_PORT=443
 ENV HTTPS_PROXY_PORT=443
+ENV HTTP_SCHEME=https
+ENV HTTPS_SCHEME=https
 
 # Railway injects $PORT and $RAILWAY_PUBLIC_DOMAIN - configure both
 COPY --chown=geoserver:geoserver <<'EOF' /scripts/railway-config.sh
@@ -25,10 +27,23 @@ sed -i "s/port=\"8080\"/port=\"$PORT\"/g" /usr/local/tomcat/conf/server.xml
 
 # Set proxy name if Railway domain is provided
 if [ -n "$RAILWAY_PUBLIC_DOMAIN" ]; then
-  echo "Setting proxy name: $RAILWAY_PUBLIC_DOMAIN"
+  echo "Setting proxy name: $RAILWAY_PUBLIC_DOMAIN (HTTPS)"
   export HTTP_PROXY_NAME="$RAILWAY_PUBLIC_DOMAIN"
   export HTTPS_PROXY_NAME="$RAILWAY_PUBLIC_DOMAIN"
+  export PROXY_BASE_URL="https://$RAILWAY_PUBLIC_DOMAIN/geoserver"
 fi
+
+# Configure Tomcat to trust Railway's proxy headers
+cat >> /usr/local/tomcat/conf/server.xml.bak <<'VALVE'
+    <!-- Railway HTTPS Proxy Support -->
+    <Valve className="org.apache.catalina.valves.RemoteIpValve"
+           remoteIpHeader="x-forwarded-for"
+           proxiesHeader="x-forwarded-by"
+           protocolHeader="x-forwarded-proto" />
+VALVE
+
+# Insert valve before closing </Host> tag
+sed -i 's|</Host>|    <Valve className="org.apache.catalina.valves.RemoteIpValve" remoteIpHeader="x-forwarded-for" protocolHeader="x-forwarded-proto" />\n      </Host>|' /usr/local/tomcat/conf/server.xml
 EOF
 
 RUN chmod +x /scripts/railway-config.sh
