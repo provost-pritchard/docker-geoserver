@@ -11,16 +11,27 @@ ENV FOOTPRINTS_DATA_DIR=/tmp/footprints
 ENV INITIAL_MEMORY=256M
 ENV MAXIMUM_MEMORY=512M
 
-# Railway injects $PORT - we'll modify Tomcat's server.xml at runtime
-# Add startup script to patch Tomcat port before entrypoint runs
-COPY --chown=geoserver:geoserver <<'EOF' /scripts/railway-port.sh
+# Railway proxy configuration (fixes CSP form-action errors)
+# Railway exposes apps via HTTPS on port 443
+ENV HTTP_PROXY_PORT=443
+ENV HTTPS_PROXY_PORT=443
+
+# Railway injects $PORT and $RAILWAY_PUBLIC_DOMAIN - configure both
+COPY --chown=geoserver:geoserver <<'EOF' /scripts/railway-config.sh
 #!/bin/bash
 PORT=${PORT:-8080}
 echo "Configuring Tomcat for Railway PORT=$PORT"
 sed -i "s/port=\"8080\"/port=\"$PORT\"/g" /usr/local/tomcat/conf/server.xml
+
+# Set proxy name if Railway domain is provided
+if [ -n "$RAILWAY_PUBLIC_DOMAIN" ]; then
+  echo "Setting proxy name: $RAILWAY_PUBLIC_DOMAIN"
+  export HTTP_PROXY_NAME="$RAILWAY_PUBLIC_DOMAIN"
+  export HTTPS_PROXY_NAME="$RAILWAY_PUBLIC_DOMAIN"
+fi
 EOF
 
-RUN chmod +x /scripts/railway-port.sh
+RUN chmod +x /scripts/railway-config.sh
 
-# Wrap entrypoint to inject port config first
-ENTRYPOINT ["/bin/bash", "-c", "/scripts/railway-port.sh && exec /scripts/entrypoint.sh \"$@\"", "--"]
+# Wrap entrypoint to inject Railway config first
+ENTRYPOINT ["/bin/bash", "-c", "/scripts/railway-config.sh && exec /scripts/entrypoint.sh \"$@\"", "--"]
