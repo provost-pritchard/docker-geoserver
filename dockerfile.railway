@@ -1,0 +1,26 @@
+FROM kartoza/geoserver:2.28.2
+
+USER root
+
+# Use /tmp for ephemeral Railway filesystem
+ENV GEOSERVER_DATA_DIR=/tmp/geoserver_data
+ENV GEOWEBCACHE_CACHE_DIR=/tmp/gwc
+ENV FOOTPRINTS_DATA_DIR=/tmp/footprints
+
+# Low memory for Railway free tier
+ENV INITIAL_MEMORY=256M
+ENV MAXIMUM_MEMORY=512M
+
+# Railway injects $PORT - we'll modify Tomcat's server.xml at runtime
+# Add startup script to patch Tomcat port before entrypoint runs
+COPY --chown=geoserver:geoserver <<'EOF' /scripts/railway-port.sh
+#!/bin/bash
+PORT=${PORT:-8080}
+echo "Configuring Tomcat for Railway PORT=$PORT"
+sed -i "s/port=\"8080\"/port=\"$PORT\"/g" /usr/local/tomcat/conf/server.xml
+EOF
+
+RUN chmod +x /scripts/railway-port.sh
+
+# Wrap entrypoint to inject port config first
+ENTRYPOINT ["/bin/bash", "-c", "/scripts/railway-port.sh && exec /scripts/entrypoint.sh \"$@\"", "--"]
